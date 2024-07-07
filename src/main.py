@@ -3,30 +3,30 @@ import os
 from network import Network
 from inout import compute_parent
 from random import randint, sample
-from utilities import load_dataset, order_indexes, plot_training, plot_statistics, load_network
+from utilities import order_indexes, plot_training, plot_statistics, load_network
 from copy import deepcopy
 
-tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)      # suppress messages from Tensorflow
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)      # Tắt các thông báo từ Tensorflow
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 
 def initialize_population(population_size, dataset):
-    print("----->Initializing Population")
-    daddy = compute_parent(dataset)                                 # load parent from input
+    print("----->Khởi tạo Quần thể")
+    daddy = compute_parent(dataset)                                 # Tải cá thể cha mẹ từ đầu vào
     population = [daddy]
     for it in range(1, population_size):
         population.append(daddy.asexual_reproduction(it, dataset))
 
-    # sort population on ascending order based on fitness
+    # Sắp xếp quần thể theo thứ tự tăng dần dựa trên độ thích nghi (fitness)
     return sorted(population, key=lambda cnn: cnn.fitness)
 
 
 def selection(k, population, num_population):
-    if k == 0:                                              # elitism selection
-        print("----->Elitism selection")
+    if k == 0:                                              # Lựa chọn bảo toàn
+        print("----->Lựa chọn Elitism")
         return population[0], population[1]
-    elif k == 1:                                            # tournament selection
-        print("----->Tournament selection")
+    elif k == 1:                                            # Lựa chọn giải đấu
+        print("----->Lựa chọn Tournament")
         i = randint(0, num_population - 1)
         j = i
         while j < num_population - 1:
@@ -34,8 +34,8 @@ def selection(k, population, num_population):
             if randint(1, 100) <= 50:
                 return population[i], population[j]
         return population[i], population[0]
-    else:                                                   # proportionate selection
-        print("----->Proportionate selection")
+    else:                                                   # Lựa chọn tỷ lệ
+        print("----->Lựa chọn Proportionate")
         cum_sum = 0
         for i in range(num_population):
             cum_sum += population[i].fitness
@@ -51,7 +51,7 @@ def selection(k, population, num_population):
 
 
 def crossover(parent1, parent2, it):
-    print("----->Crossover")
+    print("----->Sự Giao thoa")
     child = Network(it)
 
     first, second = None, None
@@ -65,55 +65,63 @@ def crossover(parent1, parent2, it):
     child.block_list = deepcopy(first.block_list[:randint(1, len(first.block_list) - 1)]) \
                        + deepcopy(second.block_list[randint(1, len(second.block_list) - 1):])
 
-    order_indexes(child)                            # order the indexes of the blocks
+    order_indexes(child)                            # Sắp xếp các chỉ số của các khối
 
     return child
 
 
-def genetic_algorithm(num_population, num_generation, num_offspring, dataset):
-    print("Genetic Algorithm")
+def genetic_algorithm(num_population, num_generation, num_offspring, dataset, resume_from_checkpoint=None):
+    print("Thuật toán Di truyền")
 
     population = initialize_population(num_population, dataset)
 
+    if resume_from_checkpoint:
+        # Tải mô hình từ checkpoint nếu có
+        print(f"Tiếp tục từ điểm kiểm soát: {resume_from_checkpoint}")
+        model = tf.keras.models.load_model(resume_from_checkpoint)
+        # Cập nhật cá thể ban đầu với mô hình đã tải
+        population[0].model = model
+        population[0].train_and_evaluate(model, dataset)
+
     print("\n-------------------------------------")
-    print("Initial Population:")
+    print("Quần thể Ban đầu:")
     for cnn in population:
         print(cnn.name, ': ', cnn.fitness)
     print("--------------------------------------\n")
 
-    # for printing statistics about fitness and number of parameters of the best individual
+    # Để in thống kê về độ thích nghi và số lượng tham số của cá thể tốt nhất
     stats = [(population[0].fitness, population[0].model.count_params())]
 
     for gen in range(1, num_generation + 1):
 
         '''
-            k is the selection parameter:
-                k = 0 -> elitism selection
-                k = 1 -> tournament selection
-                k = 2 -> proportionate selection
+            k là tham số lựa chọn:
+                k = 0 -> Lựa chọn elitism
+                k = 1 -> Lựa chọn tournament
+                k = 2 -> Lựa chọn proportionate
         '''
         k = randint(0, 2)
 
         print("\n------------------------------------")
-        print("Generation", gen)
+        print("Thế hệ", gen)
         print("-------------------------------------")
 
         for c in range(num_offspring):
 
-            print("\nCreating Child", c)
+            print("\nTạo Ra Con cái", c)
 
-            parent1, parent2 = selection(k, population, num_population)                 # selection
-            print("Selected", parent1.name, "and", parent2.name, "for reproduction")
+            parent1, parent2 = selection(k, population, num_population)                 # Lựa chọn
+            print("Chọn", parent1.name, "và", parent2.name, "để sinh sản")
 
-            child = crossover(parent1, parent2, c + num_population)                     # crossover
-            print("Child has been created")
+            child = crossover(parent1, parent2, c + num_population)                     # Giao thoa
+            print("Đã tạo ra Con cái")
 
-            print("----->Soft Mutation")
-            child.layer_mutation(dataset)                                               # mutation
+            print("----->Đột biến Nhẹ")
+            child.layer_mutation(dataset)                                               # Đột biến
             child.parameters_mutation()
-            print("Child has been mutated")
+            print("Đã đột biến Con cái")
 
-            model = child.build_model()                                                 # evaluation
+            model = child.build_model()                                                 # Đánh giá
 
             while model == -1:
                 child = crossover(parent1, parent2, c + num_population)
@@ -124,43 +132,45 @@ def genetic_algorithm(num_population, num_generation, num_offspring, dataset):
 
             child.train_and_evaluate(model, dataset)
 
-            if child.fitness < population[-1].fitness:                                  # evolve population
-                print("----->Evolution: Child", child.name, "with fitness", child.fitness, "replaces parent ", end="")
-                print(population[-1].name, "with fitness", population[-1].fitness)
+            if child.fitness < population[-1].fitness:                                  # Tiến hóa quần thể
+                print("----->Tiến hóa: Con cái", child.name, "với độ thích nghi", child.fitness, "thay thế cha mẹ ", end="")
+                print(population[-1].name, "với độ thích nghi", population[-1].fitness)
                 name = population[-1].name
                 population[-1] = deepcopy(child)
                 population[-1].name = name
                 population = sorted(population, key=lambda net: net.fitness)
             else:
-                print("----->Evolution: Child", child.name, "with fitness", child.fitness, "is discarded")
+                print("----->Tiến hóa: Con cái", child.name, "với độ thích nghi", child.fitness, "bị loại bỏ")
 
         stats.append((population[0].fitness, population[0].model.count_params()))
 
+        # Lưu checkpoint sau mỗi thế hệ
+        checkpoint_dir = './checkpoints'
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        checkpoint_path = os.path.join(checkpoint_dir, f'generation_{gen}.h5')
+        population[0].model.save(checkpoint_path)
+
     print("\n\n-------------------------------------")
-    print("Final Population")
+    print("Quần thể Cuối cùng")
     print("-------------------------------------\n")
     for cnn in population:
         print(cnn.name, ': ', cnn.fitness)
 
     print("\n-------------------------------------")
-    print("Stats")
+    print("Thống kê")
     for i in range(len(stats)):
-        print("Best individual at generation", i + 1, "has fitness", stats[i][0], "and parameters", stats[i][1])
+        print("Cá thể tốt nhất ở thế hệ", i + 1, "có độ thích nghi", stats[i][0], "và số lượng tham số", stats[i][1])
     print("-------------------------------------\n")
 
-    # plot the fitness and the number of parameters of the best individual at each iteration
+    # Vẽ biểu đồ về độ thích nghi và số lượng tham số của cá thể tốt nhất ở mỗi vòng lặp
     plot_statistics(stats)
 
     return population[0]
 
 
 def main():
-    batch_size = 32                         # the number of training examples in one forward/backward pass
-    num_classes = 10                        # number of cifar-10 dataset classes
-    epochs = 3                              # number of forward and backward passes of all the training examples
-
     '''
-        dataset contains the hyper parameters for loading data and the dataset:
+        dataset chứa các siêu tham số để tải dữ liệu và tập dữ liệu:
             dataset = {
                 'batch_size': batch_size,
                 'num_classes': num_classes,
@@ -172,16 +182,12 @@ def main():
             }
     '''
     dataset = load_dataset(batch_size, num_classes, epochs)
+    resume_from_checkpoint = None  # Đặt lại thành đường dẫn của checkpoint nếu bạn muốn tiếp tục từ checkpoint
 
-    num_population = 4
-    num_generation = 4
-    num_offspring = 2
+    # Vẽ biểu đồ về mô hình tốt nhất thu được
+    optCNN = genetic_algorithm(num_population, num_generation, num_offspring, dataset, resume_from_checkpoint)
 
-    # plot the best model obtained
-    optCNN = genetic_algorithm(num_population, num_generation, num_offspring, dataset)
-
-    # plot the training and validation loss and accuracy
-    num_epoch = 3
+    # Vẽ biểu đồ về sự mất mát và độ chính xác trong quá trình huấn luyện và xác thực
     model = optCNN.build_model()
     model.compile(optimizer='rmsprop', loss='categorical_crossentropy', metrics=['accuracy'])
     history = model.fit(dataset['x_train'],
@@ -194,19 +200,19 @@ def main():
     optCNN.fitness = history.history['val_loss'][-1]            # fitness
 
     print("\n\n-------------------------------------")
-    print("The initial CNN has been evolved successfully in the individual", optCNN.name)
+    print("CNN ban đầu đã được tiến hóa thành công trong các cá thể", optCNN.name)
     print("-------------------------------------\n")
     daddy = load_network('parent_0')
     model = tf.keras.models.load_model('parent_0.h5')
     print("\n\n-------------------------------------")
-    print("Summary of initial CNN")
+    print("Tóm tắt của CNN ban đầu")
     print(model.summary())
-    print("Fitness of initial CNN:", daddy.fitness)
+    print("Fitness của CNN ban đầu:", daddy.fitness)
 
     print("\n\n-------------------------------------")
-    print("Summary of evolved individual")
+    print("Tóm tắt của cá nhân tiến hóa")
     print(optCNN.model.summary())
-    print("Fitness of the evolved individual:", optCNN.fitness)
+    print("Fitness của cá nhân tiến hóa:", optCNN.fitness)
     print("-------------------------------------\n")
 
     plot_training(history)
